@@ -110,19 +110,28 @@ int main() {
     target_addr.sin_addr.s_addr = ip->daddr;
 
     // 8. Send Raw TCP SYN packet
-    std::cout << "[Ochlos] Sending Raw TCP SYN packet to host.docker.internal:8080...\n";
-    int sent_bytes = sendto(sock, packet_buffer, sizeof(packet_buffer), 0, reinterpret_cast<struct sockaddr *>(&target_addr), sizeof(target_addr));
+    // std::cout << "[Ochlos] Sending Raw TCP SYN packet to host.docker.internal:8080...\n";
+    // int sent_bytes = sendto(sock, packet_buffer, sizeof(packet_buffer), 0, reinterpret_cast<struct sockaddr *>(&target_addr), sizeof(target_addr));
 
-    if (sent_bytes < 0) {
+    // 8-1. 반복적으로 전송
+    // 동일한 src,dst,seq로 전송하면 docker의 NAT에서 재전송 처리를 하기 때문에 동일 세션에서 묶어서 보내버리기 때문에 의도와 다르게 작동하게 된다.
+    const int repeat_count = 10;
+    std::cout << "[Ochlos] Sending " << repeat_count << " Raw TCP SYN packets to host.docker.internal:8080...\n";
+
+    for (int i = 0; i < repeat_count; i++) {
+        int sent_bytes = sendto(sock, packet_buffer, sizeof(packet_buffer), 0, reinterpret_cast<struct sockaddr *>(&target_addr), sizeof(target_addr));
+
+        if (sent_bytes < 0) {
 #ifdef _WIN32
-        std::cerr << "[-] sendto() failed. WSA Error COde: " << WSAGetLastError() << "\n";
+            std::cerr << "[-] sendto() failed. WSA Error COde: " << WSAGetLastError() << "\n";
 #else
-        std::cerr << "[-] sendto() failed. errno: " << errno << " (" << strerror(errno) << ")\n";
+            std::cerr << "[-] sendto() failed. errno: " << errno << " (" << strerror(errno) << ")\n";
 #endif
+            break;
+        }
     }
 
-    else
-        std::cout << "[+] Successfully sent " << sent_bytes << " bytes Raw SYN packet!\n";
+    std::cout << "[+] Completed sending " << repeat_count << " packets.\n";
 
 // 9. 다 끝나고 나서 socket resource 정리
 #ifdef _WIN32
