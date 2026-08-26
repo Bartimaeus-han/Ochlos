@@ -1,0 +1,19 @@
+services:
+  ochlos:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ochlos-attacker:latest
+    container_name: ochlos-attacker
+    working_dir: /app
+    volumes:
+      - .:/app
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    networks:
+      - ochlos_net
+
+networks:
+  ochlos_net:
+    driver: bridge
