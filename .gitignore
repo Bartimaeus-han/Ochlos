@@ -1,0 +1,42 @@
+# Exclude heavy files generated during C++ compilation from the upload list.
+
+# Exclude compile cache and build folders
+build/
+build_win/
+build_linux/
+build_mac/
+out/
+bin/
+
+# Exclude Visual Studio and IDE temporary files
+/.vs/
+/.idea/
+/.vscode/
+/*.user
+/*.suo
+
+# Exclude machine language executable files and libraries
+*.exe
+*.dll
+*.lib
+*.obj
+*.pdb
+*.ilk
+
+# macOS / Unix binaries
+*.o
+*.a
+*.dylib
+*.so
+*.dSYM/
+
+# OS system files
+.DS_Store
+Thumbs.db
+
+# CMake auto-generated
+compile_commands.json
+
+# Local editor helper & logs
+.clangd
+*.log
