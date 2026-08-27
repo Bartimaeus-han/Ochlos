@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 
@@ -21,6 +22,21 @@ enum TCPFlag : uint8_t {
     FLAG_PSH = 0x08, // 0000 1000 (버퍼 즉시 푸시)
     FLAG_ACK = 0x10, // 0001 0000 (승인 응답)
     FLAG_URG = 0x20  // 0010 0000 (긴급 데이터)
+};
+
+// RFC 792
+enum ICMPType : uint8_t {
+    ICMP_TYPE_ECHO_REPLY = 0,  // Ping 응답
+    ICMP_TYPE_ECHO_REQUEST = 8 // Ping 요청
+};
+
+// ICMP(Internet Control Message Protocol) Header
+struct ICMPHeader {
+    uint8_t type;
+    uint8_t code;
+    uint16_t checksum;
+    uint16_t id;
+    uint16_t sequence;
 };
 
 // IPv4 표준 헤더 구조체 - 20바이트 (IPv4 Standard Header structure - 20 Bytes)
@@ -142,4 +158,42 @@ inline void craft_tcp_packet(char *buffer, uint32_t src_ip, uint32_t dst_ip, uin
     std::memcpy(pseudo_buffer, &pseudo_header, sizeof(PseudoHeader));
     std::memcpy(pseudo_buffer + sizeof(PseudoHeader), tcp, sizeof(TCPHeader));
     tcp->check = calculate_checksum(reinterpret_cast<uint16_t *>(pseudo_buffer), sizeof(pseudo_buffer));
+}
+
+inline void craft_icmp_packet(
+    char *buffer,
+    uint32_t src_ip,
+    uint32_t dst_ip,
+    uint8_t type = ICMP_TYPE_ECHO_REQUEST,
+    uint8_t code = 0,
+    uint16_t id = 1234,
+    uint16_t sequence = 0,
+    uint16_t packet_id = 54321) {
+
+    //  1. initialize buffer & pointer mapping
+    std::memset(buffer, 0, sizeof(IPHeader) + sizeof(ICMPHeader));
+    auto *ip = reinterpret_cast<IPHeader *>(buffer);
+    auto *icmp = reinterpret_cast<ICMPHeader *>(buffer + sizeof(IPHeader));
+
+    // 2. L3 IPv4 Header 구성 (20 byte)
+    ip->ihl = 5;
+    ip->version = 4;
+    ip->tos = 0;
+    ip->tot_len = htons(sizeof(IPHeader) + sizeof(ICMPHeader)); // 28 bytes
+
+    ip->id = htons(packet_id);
+    ip->frag_off = 0;
+    ip->ttl = 64;
+    ip->protocol = IPPROTO_ICMP; // icmp protocol
+    ip->saddr = src_ip;
+    ip->daddr = dst_ip;
+    ip->check = 0;
+    ip->check = calculate_checksum(reinterpret_cast<uint16_t *>(ip), sizeof(IPHeader));
+
+    // 3. ICMP Header 구성 (8byte)
+    icmp->type = type;
+    icmp->code = code;
+    icmp->id = htons(id);
+    icmp->sequence = htons(sequence);
+    icmp->checksum = 0;
 }

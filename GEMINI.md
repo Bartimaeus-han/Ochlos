@@ -24,6 +24,9 @@
 5. **호스트 머신 가용성 절대 보장 및 컨테이너 격리 (Host Availability & Isolation)**:
    * 실증 과정에서 **타깃 Docker 컨테이너가 다운되는 것은 정상적인 실증 결과**이나, **개발 머신(Windows 호스트 OS)의 소켓 고갈, 네트워크 마비, 시스템 불안정이 발생하는 것은 엄격히 금지**합니다.
    * 모든 공격 도구는 제어된 단발/배치 타격과 Linux Docker 컨테이너 격리(`CAP_NET_RAW`)를 통해 호스트의 일상 작업을 방해하지 않도록 안전하게 운용합니다.
+6. **당분간 레드팀(Offensive) 시뮬레이션 전념 (Red-Team Exclusive Focus)**:
+   * 당분간 블루팀 방어선 빌드나 타 방어 프로젝트 작업을 겸하지 않고, Ochlos 내의 **레드팀 공격 도구 개발, L3~L7 공격 시나리오 고도화, 그리고 Docker 기반 수제 패킷 주입 시뮬레이션에만 전적으로 집중**합니다.
+
 
 ---
 
@@ -40,7 +43,10 @@
 5. **원인과 메커니즘 중심 설명**:
    * "Windows에서 왜 안 되는가?", "체크섬은 왜 필요한가?"와 같이 OS 커널과 네트워크 표준(RFC) 수준의 인과 관계를 명확히 설명합니다.
 6. **간결하고 명확한 톤 유지**:
-   * 군더더기 없는 정중하고 명확한 한국어(존댓말)로 커뮤니케이션합니다. LaTeX 수식 대신 유니코드 기호(`→`, `↔`)를 사용합니다.
+   * 군더더기 없는 정중하고 명확한 한국어(존댓말)로 커뮤니케이션합니다.
+7. **LaTeX 표기 일체 금지 및 순수 유니코드 기호 강제**:
+   * `$\rightarrow$`, `\rightarrow` 등의 LaTeX 수식 문법을 절대 출력하지 않으며, 화살표 및 특수 표기는 반드시 순수 유니코드 문자(`→`, `↔`, `•`)만을 사용합니다.
+
 
 ---
 
@@ -59,6 +65,8 @@ Ochlos/
 ├── .clangd               # Clangd C++20 인텔리센스 설정
 ├── .gitignore            # 컴파일 캐시 및 바이너리 제외
 ├── CMakeLists.txt        # 하위 소스 파일 자동 탐색 및 include/ 경로 주입
+├── Dockerfile            # Linux Attacker 컨테이너 환경 (CAP_NET_RAW 지원)
+├── docker-compose.yml    # Attacker On-demand 실행 및 네트워크 바인딩
 ├── GEMINI.md             # [현재 파일] Ochlos 프로젝트 AI 운영 지침 & 실증 로그 통합본
 ├── include/              # 공통 네트워크 헤더 및 유틸리티
 │   └── ochlos_net.hpp    # L3 IP / L4 TCP 헤더 및 체크섬 계산 라이브러리
@@ -66,6 +74,20 @@ Ochlos/
     ├── raw_tcp_syn_flooding.cpp  # L3/L4 Raw Socket Half-Open SYN Flooding
     └── tcp_syn_flooding.cpp      # L4 Connection Starvation
 ```
+
+### 4.1 크로스 플랫폼 패킷 조작 및 바이너리 정렬 원칙 (Cross-Platform Packet Crafting)
+
+* **소켓/시스템 헤더 분기 (`#ifdef _WIN32` vs POSIX)**:
+  * Windows (`<WinSock2.h>`, `<ws2tcpip.h>`)와 Linux/POSIX (`<arpa/inet.h>`, `<netinet/in.h>`, `<unistd.h>`)를 명확히 분기하여 MSVC, GCC, Clang에서 경고/오류 없이 빌드 가능하도록 설계.
+* **구조체 1바이트 패킹 (`#pragma pack(push, 1)`)**:
+  * 컴파일러별 자동 메모리 패딩(Structure Padding)을 방지하여 RFC 표준 IPv4(20B) + TCP(20B) = **정확히 40바이트의 바이너리 레이아웃**을 강제 보장.
+* **리틀 엔디안(Little-Endian) 비트필드(Bit-field) 배치**:
+  * 현대 주요 아키텍처(x86_64, ARM64)의 메모리 저장 방식에 맞추어 IPv4 첫 바이트(`ihl: 4` 하위 비트, `version: 4` 상위 비트)를 LSB-first 순서로 배치.
+  * TCP 플래그는 `uint8_t flags` 공용체(union)를 통해 1바이트 통째로 대입하여 비트필드 해석 오차를 원천 차단.
+* **엔디안 변환 일관성 및 2단계 체크섬 계산 (RFC 791 / RFC 793)**:
+  * 포트(`src_port`, `dest`) 및 시퀀스 번호 등 호스트 값은 `htons()`, `htonl()`을 통해 Network Byte Order(Big Endian)로 변환.
+  * IP 체크섬뿐만 아니라 12바이트 의조 헤더(Pseudo Header)를 구성하여 TCP 체크섬을 정확히 계산하는 `craft_tcp_packet()` 함수로 캡슐화.
+
 
 ---
 
