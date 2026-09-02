@@ -196,4 +196,6 @@ inline void craft_icmp_packet(
     icmp->id = htons(id);
     icmp->sequence = htons(sequence);
     icmp->checksum = 0;
+    // 위에서 먼저 0으로 초기화 하는 이유는 calculate 과정에서 checksum 값도 필요하기 때문이다.
+    icmp->checksum = calculate_checksum(reinterpret_cast<uint16_t *>(icmp), sizeof(ICMPHeader));
 }
