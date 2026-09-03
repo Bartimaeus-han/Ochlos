@@ -123,11 +123,26 @@ Ochlos/
 - **블루팀(Bartimaeus) 방어 권고사항 (Blue Team Feedback)**:
   * L3/L4 경계선에서 패킷 가시성을 확보하였으므로, 다음 단계로 검증된 트래픽을 내부 백엔드(`bartimaeus-app:9090`)로 포워딩(중계)하는 파이프라인 및 Stateless IP/Port 룰 필터링 구현 필요.
 
+### [SCENARIO-02] L3 ICMP Echo Flooding (Ping Flooding) & IP Spoofing 실증
+- **공격 목표 (Attack Objective)**: 타깃 네트워크 스택의 ICMP 처리 인터럽트(SoftIRQ) 및 대역폭/응답 버퍼 고갈 (DoS)
+- **OSI 계층 (Target Layer)**: Layer 3 (Network Layer)
+- **공격 메커니즘 (Mechanics)**: L3 IPv4(20B) + ICMP Echo Request(8B)의 28바이트 원시 패킷을 직접 패킹하고, 출발지 IP를 임의 주소(`100.0.0.99`)로 위조(L3 IP Spoofing)하여 무차별 방출.
+- **실행 도구 (Tool)**: [DoS/icmp_echo_flooding.cpp](DoS/icmp_echo_flooding.cpp) (C++20 Raw Socket / `IP_HDRINCL`)
+- **실행 명령어 (On-demand Runner)**:
+  ```bash
+  docker compose run --rm ochlos cpprun DoS/icmp_echo_flooding.cpp
+  ```
+- **테스트베드 실측 결과 (Empirical Results)**:
+  * Docker On-demand 컨테이너(`CAP_NET_RAW`) 기반 격리 실행 성공.
+  * `host.docker.internal` 대상 100개 배치 ICMP Echo Request 패킷 전송 완료 (오류 코드 0, 자원 누수 없음).
+- **블루팀(Bartimaeus) 방어 권고사항 (Blue Team Feedback)**:
+  * 경계 방화벽/ScreeningRouter에서 미사용 ICMP Type 8 패킷 차단 또는 초당 인입 패킷 수 제한(ICMP Rate Limiting / Token Bucket) 방어선 구축 필요.
+
 ---
 
 ## 📌 7. Ochlos 인프라 및 공격 도구 개선 TODO (Backlog)
 
-- [ ] **Ochlos 공격 도구의 Docker 컨테이너화 및 On-demand Runner 구성 (Infra-Attacker)**
+- [x] **Ochlos 공격 도구의 Docker 컨테이너화 및 On-demand Runner 구성 (Infra-Attacker)**
   - **배경 및 목적**: Windows 호스트 OS의 Raw Socket 보안 제약(`SOCK_RAW`, IP Spoofing 차단)을 극복하고, 크로스 플랫폼 일관성 및 L3/L4 저수준 패킷 조작 환경 확보.
   - **개발 워크플로우**:
     - **코드 편집 & Git 관리**: 로컬 호스트(VS Code)에서 평소처럼 편집 및 GitHub 커밋 유지.
