@@ -57,7 +57,8 @@ int main() {
 
     // 3. target domain 해석
     // host.docker.internal은 docker 내부 컨테이너에서 docker가 실행되고 있는 호스트 pc를 가리키는 dns address이다.
-    const char *target_host = "host.docker.internal";
+    const char *target_host = "screening-router";
+    // const char *target_host = "172.22.0.2";
     struct addrinfo hints{}, *res = nullptr;
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_RAW;

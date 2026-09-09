@@ -133,10 +133,13 @@ Ochlos/
   docker compose run --rm ochlos cpprun DoS/icmp_echo_flooding.cpp
   ```
 - **테스트베드 실측 결과 (Empirical Results)**:
-  * Docker On-demand 컨테이너(`CAP_NET_RAW`) 기반 격리 실행 성공.
-  * `host.docker.internal` 대상 100개 배치 ICMP Echo Request 패킷 전송 완료 (오류 코드 0, 자원 누수 없음).
+  * Docker On-demand 컨테이너(`CAP_NET_RAW`, `external_net` 바인딩) 기반 격리 실행 성공.
+  * 도커 내장 DNS(`screening-router` → `172.22.0.2`) 자동 해석 성공.
+  * `screening-router` 대상 100개 배치 ICMP Echo Request 패킷 전송 완료 (위조 IP: `100.0.0.99`).
+  * 블루팀 `bartimaeus-screening-router`의 외부 인터페이스(`eth0`)에서 100건 전수 실시간 수신/감지 확인 (`[L3 Inbound] 100.0.0.99 -> 172.22.0.2 (Proto: 1)`).
+  * DMZ 내부망(`eth1`) 및 리버스 프록시로의 패킷 누출 0건 (경계선 완벽 차단 확인).
 - **블루팀(Bartimaeus) 방어 권고사항 (Blue Team Feedback)**:
-  * 경계 방화벽/ScreeningRouter에서 미사용 ICMP Type 8 패킷 차단 또는 초당 인입 패킷 수 제한(ICMP Rate Limiting / Token Bucket) 방어선 구축 필요.
+  * 경계 방화벽/ScreeningRouter에서 미사용 ICMP Type 8 패킷 차단 또는 초당 인입 패킷 수 제한(ICMP Rate Limiting / Token Bucket) 방어선 유지 및 고도화.
 
 ---
 

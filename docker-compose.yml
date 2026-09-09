@@ -12,8 +12,9 @@ services:
       - NET_RAW
       - NET_ADMIN
     networks:
-      - ochlos_net
+      - external_net
 
 networks:
-  ochlos_net:
-    driver: bridge
+  external_net:
+    external: true
+    name: bartimaeus_app_1_external_net
