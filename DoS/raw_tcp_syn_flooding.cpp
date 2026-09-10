@@ -55,8 +55,8 @@ int main() {
         return 1;
     }
 
-    // [L3 DNS 해석] docker에서 window의 도메인을 host.docker.internal 이라고 지칭하기 때문에 그걸 IPv4로 전환해준다.
-    const char *target_host = "host.docker.internal";
+    // [L3 DNS 해석] 동일 외부망 컨테이너인 screening-router의 IPv4 주소를 Docker DNS를 통해 조회 (Resolve screening-router IPv4)
+    const char *target_host = "screening-router";
     struct addrinfo hints{}, *res = nullptr;
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
@@ -83,13 +83,13 @@ int main() {
     target_addr.sin_addr.s_addr = dst_ip;
 
     // 8. Send Raw TCP SYN packet
-    // std::cout << "[Ochlos] Sending Raw TCP SYN packet to host.docker.internal:8080...\n";
+    // std::cout << "[Ochlos] Sending Raw TCP SYN packet to screening-router:8080...\n";
     // int sent_bytes = sendto(sock, packet_buffer, sizeof(packet_buffer), 0, reinterpret_cast<struct sockaddr *>(&target_addr), sizeof(target_addr));
 
     // 8-1. 반복적으로 전송
     // 동일한 src,dst,seq로 전송하면 docker의 NAT에서 재전송 처리를 하기 때문에 동일 세션에서 묶어서 보내버리기 때문에 의도와 다르게 작동하게 된다.
     const int repeat_count = 10;
-    std::cout << "[Ochlos] Sending " << repeat_count << " Raw TCP SYN packets to host.docker.internal:8080...\n";
+    std::cout << "[Ochlos] Sending " << repeat_count << " Raw TCP SYN packets to screening-router:8080...\n";
 
     char packet_buffer[sizeof(IPHeader) + sizeof(TCPHeader)];
 
