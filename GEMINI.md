@@ -22,8 +22,8 @@
 4. **블루팀 피드백 연계 (Feedback to Bartimaeus)**:
    * 공격 실증 후 도출된 취약점 분석 결과와 권고 대책을 본 문서의 실증 로그에 기록하고 블루팀(`Bartimaeus`) 방어 아키텍처(ScreeningRouter, RateLimiter 등)에 환류합니다.
 5. **호스트 머신 가용성 절대 보장 및 컨테이너 격리 (Host Availability & Isolation)**:
-   * 실증 과정에서 **타깃 Docker 컨테이너가 다운되는 것은 정상적인 실증 결과**이나, **개발 머신(Windows 호스트 OS)의 소켓 고갈, 네트워크 마비, 시스템 불안정이 발생하는 것은 엄격히 금지**합니다.
-   * 모든 공격 도구는 제어된 단발/배치 타격과 Linux Docker 컨테이너 격리(`CAP_NET_RAW`)를 통해 호스트의 일상 작업을 방해하지 않도록 안전하게 운용합니다.
+   * 실증 과정에서 **타깃 Docker 컨테이너가 다운되는 것은 정상적인 실증 결과**이나, **개발 머신(Windows / macOS 등 호스트 OS)의 소켓 고갈, 네트워크 마비, 시스템 불안정이 발생하는 것은 엄격히 금지**합니다.
+   * 모든 공격 도구는 제어된 단발/배치 타격과 Linux Docker 컨테이너 격리(`CAP_NET_RAW`)를 통해 호스트의 일상 작업을 방해하지 않도록 안전하게 운용합니다. 특히 macOS 호스트의 경우 Docker Desktop Linux VM(가상 머신)을 경유하므로, VM 브리지 네트워크 포화 및 호스트 프로세스 영향도를 상시 점검합니다.
 6. **당분간 레드팀(Offensive) 시뮬레이션 전념 (Red-Team Exclusive Focus)**:
    * 당분간 블루팀 방어선 빌드나 타 방어 프로젝트 작업을 겸하지 않고, Ochlos 내의 **레드팀 공격 도구 개발, L3~L7 공격 시나리오 고도화, 그리고 Docker 기반 수제 패킷 주입 시뮬레이션에만 전적으로 집중**합니다.
 
@@ -57,9 +57,11 @@
 ## 🏗️ 4. 기술 스택 및 디렉터리 구조 (Tech Stack & Layout)
 
 * **언어 및 표준**: C++20 (Modern C++)
-* **빌드 시스템**: CMake (3.15 이상), MSVC 2026 / GCC (Linux)
+* **빌드 시스템**: CMake (3.15 이상), MSVC / Apple Clang (macOS) / GCC (Linux)
 * **네트워크 인터페이스**:
-  * **Windows 호스트**: Winsock2 (`ws2_32.lib`) - 일반 소켓(`SOCK_STREAM`, `SOCK_DGRAM`) 연결 테스트
+  * **호스트 OS (Windows / macOS)**:
+    * **Windows 호스트**: Winsock2 (`ws2_32.lib`) - 일반 소켓(`SOCK_STREAM`, `SOCK_DGRAM`) 연결 테스트
+    * **macOS 호스트**: BSD/POSIX Sockets (`<sys/socket.h>`, `<arpa/inet.h>`) 및 Docker Desktop Linux VM 경유 네트워킹
   * **Linux 컨테이너**: POSIX Sockets, `CAP_NET_RAW` - 수제 패킷 주입(`SOCK_RAW`), SYN Flooding, L3/L4 조작
 * **코드 포맷팅 & 린팅**: LLVM 스타일 (4-space indent), Clangd C++20 LSP 지원
 
@@ -146,7 +148,7 @@ Ochlos/
 ## 📌 7. Ochlos 인프라 및 공격 도구 개선 TODO (Backlog)
 
 - [x] **Ochlos 공격 도구의 Docker 컨테이너화 및 On-demand Runner 구성 (Infra-Attacker)**
-  - **배경 및 목적**: Windows 호스트 OS의 Raw Socket 보안 제약(`SOCK_RAW`, IP Spoofing 차단)을 극복하고, 크로스 플랫폼 일관성 및 L3/L4 저수준 패킷 조작 환경 확보.
+  - **배경 및 목적**: 호스트 OS(Windows / macOS)의 Raw Socket 보안 제약(`SOCK_RAW`, IP Spoofing 차단 및 커널 차이)을 극복하고, 크로스 플랫폼 일관성 및 L3/L4 저수준 패킷 조작 환경 확보.
   - **개발 워크플로우**:
     - **코드 편집 & Git 관리**: 로컬 호스트(VS Code)에서 평소처럼 편집 및 GitHub 커밋 유지.
     - **실시간 바인드 마운트**: `docker-compose.yml`에 `ochlos` 서비스 정의 (`volumes: - .:/app`, `cap_add: - NET_RAW`).

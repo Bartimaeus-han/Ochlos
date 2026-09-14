@@ -95,19 +95,26 @@ int main() {
 
     // 6. ICMP Echo Flooding 테스트 패킷 송출 (100개 배치)
     const int total_packets = 100;
+    int sent_count = 0;
+    auto start_time = std::chrono::steady_clock::now();
+
     for (int i = 0; i < total_packets; ++i) {
-        ssize_t sent_bytes = sendto(sock, packet, sizeof(packet), 0,
-                                    reinterpret_cast<struct sockaddr *>(&target_addr),
-                                    sizeof(target_addr));
+        auto sent_bytes = sendto(sock, packet, sizeof(packet), 0,
+                                 reinterpret_cast<struct sockaddr *>(&target_addr),
+                                 sizeof(target_addr));
 
         if (sent_bytes < 0) {
             std::cerr << "[-] sendto failed\n";
             break;
         }
 
-        std::cout << "[+] (" << (i + 1) << "/" << total_packets << ") Sent ICMP Echo Request packet.\n";
-        std::this_thread::sleep_for(std::chrono::milliseconds(10)); // 10ms 간격 관측용
+        sent_count++;
     }
+
+    auto end_time = std::chrono::steady_clock::now();
+    std::chrono::duration<double, std::milli> elapsed = end_time - start_time;
+
+    std::cout << "[+] Attack Finished: " << sent_count << "/" << total_packets << " packets sent in " << elapsed.count() << " ms.\n";
 
     // Clear socket resource
 #ifdef _WIN32
