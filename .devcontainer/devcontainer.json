@@ -1,0 +1,23 @@
+{
+    "name": "Ochlos Dev Container",
+    "build": {
+        "dockerfile": "../Dockerfile",
+        "context": ".."
+    },
+    "workspaceMount": "source=${localWorkspaceFolder},target=/app,type=bind",
+    "workspaceFolder": "/app",
+    "runArgs": [
+        "--cap-add=NET_RAW",
+        "--cap-add=NET_ADMIN",
+        "--network=bartimaeus_app_1_external_net"
+    ],
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "llvm-vs-code-extensions.vscode-clangd",
+                "n2ns.antigravity-panel",
+                "ms-azuretools.vscode-docker"
+            ]
+        }
+    }
+}

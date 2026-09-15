@@ -8,7 +8,12 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
+    clangd \
     g++ \
+    curl \
+    wget \
+    ca-certificates \
+    git \
     iproute2 \
     net-tools \
     iputils-ping \
