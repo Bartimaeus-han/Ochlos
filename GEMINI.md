@@ -132,16 +132,50 @@ Ochlos/
 - **실행 도구 (Tool)**: [DoS/icmp_echo_flooding.cpp](DoS/icmp_echo_flooding.cpp) (C++20 Raw Socket / `IP_HDRINCL`)
 - **실행 명령어 (On-demand Runner)**:
   ```bash
-  docker compose run --rm ochlos cpprun DoS/icmp_echo_flooding.cpp
+  # 패킷 수 인자 지정 가능 (기본값: 1000)
+  docker compose run --rm ochlos cpprun DoS/icmp_echo_flooding.cpp [패킷수]
   ```
 - **테스트베드 실측 결과 (Empirical Results)**:
-  * Docker On-demand 컨테이너(`CAP_NET_RAW`, `external_net` 바인딩) 기반 격리 실행 성공.
-  * 도커 내장 DNS(`screening-router` → `172.22.0.2`) 자동 해석 성공.
-  * `screening-router` 대상 100개 배치 ICMP Echo Request 패킷 전송 완료 (위조 IP: `100.0.0.99`).
-  * 블루팀 `bartimaeus-screening-router`의 외부 인터페이스(`eth0`)에서 100건 전수 실시간 수신/감지 확인 (`[L3 Inbound] 100.0.0.99 -> 172.22.0.2 (Proto: 1)`).
-  * DMZ 내부망(`eth1`) 및 리버스 프록시로의 패킷 누출 0건 (경계선 완벽 차단 확인).
+  * **공격 도구 최적화**: 송출 루프 내부의 `write()` 시스템 콜(`std::cout`) 및 `sleep`을 완전 제거하여 초당 약 40,000 ~ 52,000 PPS의 최대 라인 레이트 버스트 송출 역량 확보.
+  * **규모별 Cold-Start(컨테이너 재시작 클린 상태) 실측 통계 (각 3회 반복)**:
+    * **1,000개 폭격 (지속 0.02초, ~40,000 PPS)**: 평균 수신 570개 / **평균 유실률 43.0%**
+    * **10,000개 폭격 (지속 0.25초, ~39,500 PPS)**: 평균 수신 4,758개 / **평균 유실률 52.4%**
+    * **100,000개 폭격 (지속 1.90초, ~52,000 PPS)**: 평균 수신 37,844개 / **평균 유실률 62.1%** (최대 63.6% 유실)
+  * **병목 및 DoS 메커니즘 규명**:
+    * 블루팀 `ScreeningRouter`의 단일 스레드 `std::cout` 동기 콘솔 출력 지연으로 인해 수신 큐 소비 속도가 인입 속도를 따라가지 못함 (라우터 최대 처리량: 약 20,000 PPS).
+    * 결과적으로 초과 인입된 패킷이 리눅스 커널의 소켓 수신 버퍼(`SO_RCVBUF`)에서 대량 폐기(Drop)되어, 폭격 지속 시 **인입 트래픽의 60% 이상이 증발하는 명백한 서비스 거부(DoS) 상태를 완벽히 실증**.
+  * **호스트 안전성 검증**: 10만 개 연속 폭격 시에도 호스트 OS(Windows/macOS) 및 도커 데몬 영향도 0에 수렴(`vmmemWSL` 메모리 1.8GB 안정 유지, 호스트 프리징 없음).
 - **블루팀(Bartimaeus) 방어 권고사항 (Blue Team Feedback)**:
-  * 경계 방화벽/ScreeningRouter에서 미사용 ICMP Type 8 패킷 차단 또는 초당 인입 패킷 수 제한(ICMP Rate Limiting / Token Bucket) 방어선 유지 및 고도화.
+  * **성능 최적화**: 대량 트래픽 인입 시 I/O 병목 방지를 위해 실시간 패킷 콘솔 로깅을 비동기화하거나 N개(예: 1,000개) 단위 샘플링 출력으로 전환 필요.
+  * **경계선 차단**: `ScreeningRouter`에 미사용 ICMP Type 8 패킷을 즉각 폐기하는 L3 Stateless Drop 룰셋 구현 필요.
+
+### [SCENARIO-03] L4 Raw TCP SYN Flooding & NAPT Session State Exhaustion 실증
+- **공격 목표 (Attack Objective)**: 스크리닝 라우터(ScreeningRouter)의 NAPT 세션 테이블 메모리 고갈 및 미완료 Half-Open 세션 누적 (State Exhaustion DoS)
+- **OSI 계층 (Target Layer)**: Layer 4 (Transport Layer)
+- **공격 메커니즘 (Mechanics)**:
+  * L3 IPv4(20B) + TCP SYN(20B) = 40바이트 원시 패킷을 직접 패킹(`IP_HDRINCL`, `FLAG_SYN`).
+  * 출발지 포트를 고정하지 않고 매 루프마다 난수/순환(`10000 ~ 64999`)으로 변조하여, 라우터가 매번 독립된 신규 세션으로 인식하도록 유도.
+  * 3-Way Handshake(SYN-ACK / ACK)를 완료하지 않는 순수 Half-Open 형태로 무차별 송출하여 NAPT 세션 테이블의 무한 증식을 촉발.
+- **실행 도구 (Tool)**: [DoS/raw_tcp_syn_flooding.cpp](DoS/raw_tcp_syn_flooding.cpp) (C++20 Raw Socket / `IP_HDRINCL`)
+- **실행 명령어 (On-demand Runner)**:
+  ```bash
+  # 패킷 수 인자 지정 가능 (기본값: 1000)
+  docker compose run --rm ochlos cpprun DoS/raw_tcp_syn_flooding.cpp [패킷수]
+  ```
+- **테스트베드 실측 결과 (Empirical Results)**:
+  * **공격 도구 최적화**: 콘솔 I/O 병목 및 `sleep` 제거, CLI 동적 패킷 수 인자 및 포트 오버플로우 방지(`10000 + (i % 55000)`) 적용으로 초당 약 30,000 PPS 송출 성능 확보.
+  * **규모별 실측 데이터 (Cold Start 기반)**:
+    * **1,000개 폭격 (32.68 ms, 30,598 PPS)**: 878개 수신 (유실률 12.2%), 메모리 680 KiB 유지 (소량 세션).
+    * **10,000개 폭격 (344.25 ms, 29,049 PPS)**: 9,141개 수신 (유실률 8.59%), 메모리 **680 KiB → 1.00 MiB (약 50% 팽창)**.
+    * **100,000개 폭격 (3,251.14 ms, 30,758 PPS)**: 83,229개 수신 (유실률 16.77%), 메모리 **680 KiB → 3.02 MiB (초기 대비 약 4.5배 급증)**.
+  * **취약점 및 공격 메커니즘 규명**:
+    * **상태 고갈(State Exhaustion)**: 라우터가 `SYN` 단 1개만으로도 3-Way Handshake 완료 검증 및 만료 시간(TTL) 없이 `std::unordered_map`에 노드를 무한 할당함을 실증.
+    * **단일 포트 키(Single-Port Key) 한계 식별**: `client_port` 단일 필드를 Key로 사용함에 따라 서로 다른 IP 간 세션 충돌/덮어쓰기 위험 및 65,535개 물리적 키 한계 확인.
+  * **호스트 안전성 검증**: 10만 개 폭격 시에도 `vmmemWSL` 메모리 1.8GB 안정 유지, 호스트 CPU 및 데몬 영향 없음 확인.
+- **블루팀(Bartimaeus) 방어 권고사항 (Blue Team Feedback)**:
+  * **복합 키(5-Tuple) 도입**: `(src_ip, src_port, dst_ip, dst_port, proto)` 조합으로 세션 키를 구성하여 포트 충돌 방지.
+  * **Half-Open 세션 타임아웃 & 가비지 컬렉션(GC)**: SYN만 도착하고 ACK가 없는 미완료 세션은 3~5초 이내에 강제 회수하는 타이머 도입.
+  * **최대 용량 제한(Capacity Cap)**: 세션 테이블 상한선 설정 및 LRU 기반 퇴출 정책 수립.
 
 ---
 
@@ -154,3 +188,10 @@ Ochlos/
     - **실시간 바인드 마운트**: `docker-compose.yml`에 `ochlos` 서비스 정의 (`volumes: - .:/app`, `cap_add: - NET_RAW`).
     - **On-demand 실행**: `docker compose run --rm ochlos ...`으로 필요할 때만 컨테이너를 띄워 컴파일 & 타격 후 자동 소멸(`--rm`).
   - **기대 효과**: Linux 커널의 `CAP_NET_RAW` 권한을 활용해 순수 TCP SYN Flooding(Half-Open, 비정상 패킷 주입) 등 고도화된 DoS 공격을 제약 없이 실증 가능.
+
+- [ ] **L4 UDP Flooding 공격 도구 구현 및 3대 기초 Flooding 완성 (Attack-UDP)**
+  - **배경 및 목적**: L3 ICMP Flooding(제어용), L4 TCP SYN Flooding(연결형)에 이어 L4 비연결형 프로토콜인 UDP Flooding 도구를 확보하여 네트워크 3대 기초 DoS 공격 라인업(TCP, ICMP, UDP)을 완전체로 구축.
+  - **기술 구현 로드맵**:
+    - `include/ochlos_net.hpp`에 RFC 768 표준 8바이트 `UDPHeader` 구조체 및 `craft_udp_packet()` 패킷 패킹 유틸리티 추가.
+    - `DoS/udp_flooding.cpp` 작성: 수제 Raw Socket 기반 비연결형 패킷 생성, 무작위 목적지/출발지 포트 변조, 동적 패킷 수 CLI 인자 지원, 고정밀 `steady_clock` 벤치마크 루프 적용.
+    - 블루팀 스크리닝 라우터(웹 전용 HTTP 8080) 대상 UDP 무차별 패킷 주입 및 비인가 프로토콜 처리 거동(무차별 포워딩 vs Port Unreachable 유발 여부) 실측.

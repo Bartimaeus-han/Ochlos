@@ -14,7 +14,7 @@
 #include <unistd.h>
 #endif
 
-int main() {
+int main(int argc, char *argv[]) {
 #ifdef _WIN32
     WSADATA wsaData;
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
@@ -93,8 +93,8 @@ int main() {
 
     std::cout << "[+] Flooding Target: " << target_host << " with ICMP Echo Reequests...\n";
 
-    // 6. ICMP Echo Flooding 테스트 패킷 송출 (100개 배치)
-    const int total_packets = 100;
+    // 6. ICMP Echo Flooding 테스트 패킷 송출 (CLI 인자 지원, 기본 1,000개)
+    int total_packets = (argc > 1) ? std::atoi(argv[1]) : 1000;
     int sent_count = 0;
     auto start_time = std::chrono::steady_clock::now();
 
