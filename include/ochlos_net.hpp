@@ -79,13 +79,27 @@ struct TCPHeader {
     uint16_t urg_ptr; // 긴급 포인터 (Urgent Pointer)
 };
 
-// TCP 체크섬 계산 전용 의조 헤더 구조체 - 12바이트 (TCP Pseudo Header for checksum - 12 Bytes)
+// UDP 표준 헤더 구조체 - 8byte (RFC 768)
+struct UDPHeader {
+    // source & destination port
+    uint16_t source;
+    uint16_t dest;
+    uint16_t len; // Header + Data Length (min 8byte)
+    uint16_t check;
+};
+
+// TCP/UDP 체크섬 계산 전용 의조 헤더 구조체 - 12바이트 (TCP/UDP Pseudo Header for checksum - 12 Bytes)
 struct PseudoHeader {
     uint32_t src_ip;  // 출발지 IP 주소 (Source IP)
     uint32_t dst_ip;  // 목적지 IP 주소 (Destination IP)
     uint8_t reserved; // 0x00 정렬 패딩 (Zero Padding)
-    uint8_t protocol; // 프로토콜 번호 (Protocol TCP = 6)
-    uint16_t tcp_len; // TCP 헤더 + 데이터 길이 (TCP Header + Payload Length)
+    uint8_t protocol; // TCP=6, UDP=17
+    // length에 대한 union
+    union {
+        uint16_t length;
+        uint16_t tcp_len;
+        uint16_t udp_len;
+    };
 };
 
 #pragma pack(pop)
@@ -110,14 +124,27 @@ inline uint16_t calculate_checksum(uint16_t *ptr, int nbytes) {
     return static_cast<uint16_t>(~sum);
 }
 
-// Pseudo Header 생성 헬퍼 함수 (Create and populate PseudoHeader)
-inline PseudoHeader create_pseudo_header(uint32_t src_ip, uint32_t dst_ip, uint16_t tcp_len) {
+// TCP Pseudo Header 생성 헬퍼 함수 (Create and populate PseudoHeader)
+inline PseudoHeader create_tcp_pseudo_header(uint32_t src_ip, uint32_t dst_ip, uint16_t tcp_len) {
     PseudoHeader header;
     header.src_ip = src_ip;
     header.dst_ip = dst_ip;
     header.reserved = 0;
     header.protocol = IPPROTO_TCP;
     header.tcp_len = htons(tcp_len);
+
+    return header;
+}
+
+// UDP Pseudo Header 생성 헬퍼 함수
+inline PseudoHeader create_udp_pseudo_header(uint32_t src_ip, uint32_t dst_ip, uint16_t udp_len) {
+    PseudoHeader header;
+    header.src_ip = src_ip;
+    header.dst_ip = dst_ip;
+    header.reserved = 0;
+    header.protocol = IPPROTO_UDP;
+    header.udp_len = htons(udp_len);
+
     return header;
 }
 
@@ -153,7 +180,7 @@ inline void craft_tcp_packet(char *buffer, uint32_t src_ip, uint32_t dst_ip, uin
     tcp->check = 0;
 
     // 4. calcuate TCP checksum via Pseudo Header
-    PseudoHeader pseudo_header = create_pseudo_header(src_ip, dst_ip, sizeof(TCPHeader));
+    PseudoHeader pseudo_header = create_tcp_pseudo_header(src_ip, dst_ip, sizeof(TCPHeader));
     char pseudo_buffer[sizeof(PseudoHeader) + sizeof(TCPHeader)];
     std::memcpy(pseudo_buffer, &pseudo_header, sizeof(PseudoHeader));
     std::memcpy(pseudo_buffer + sizeof(PseudoHeader), tcp, sizeof(TCPHeader));
@@ -198,4 +225,66 @@ inline void craft_icmp_packet(
     icmp->checksum = 0;
     // 위에서 먼저 0으로 초기화 하는 이유는 calculate 과정에서 checksum 값도 필요하기 때문이다.
     icmp->checksum = calculate_checksum(reinterpret_cast<uint16_t *>(icmp), sizeof(ICMPHeader));
+}
+
+inline void craft_udp_packet(
+    char *buffer,
+    uint32_t src_ip,
+    uint32_t dst_ip,
+    uint16_t src_port,
+    uint16_t dst_port,
+    const char *payload = nullptr,
+    uint16_t payload_len = 0,
+    uint16_t packet_id = 54321) {
+
+    // Length
+    uint16_t udp_len = sizeof(UDPHeader) + payload_len;
+    uint16_t total_len = sizeof(IPHeader) + udp_len;
+
+    // 1. buffer 초기화 & 각 계층 pointer 매핑
+    std::memset(buffer, 0, total_len);
+    auto *ip = reinterpret_cast<IPHeader *>(buffer);                      // Layer 3
+    auto *udp = reinterpret_cast<UDPHeader *>(buffer + sizeof(IPHeader)); // Layer 4(UDP)
+    char *data = buffer + sizeof(IPHeader) + sizeof(UDPHeader);
+
+    // 2. L3 IPv4 Header
+    {
+        ip->ihl = 5;     // 5*4=20byte
+        ip->version = 4; // IPv4
+        ip->tos = 0;     // Best-effort
+        ip->tot_len = htons(total_len);
+        ip->id = htons(packet_id);
+        ip->frag_off = 0; // fragment : 단편화
+        ip->ttl = 64;
+        ip->protocol = IPPROTO_UDP;
+        ip->saddr = src_ip;
+        ip->daddr = dst_ip;
+        // check field
+        ip->check = 0;
+        ip->check = calculate_checksum(reinterpret_cast<uint16_t *>(ip), sizeof(IPHeader));
+    }
+
+    // 3. L4. UDP Header
+    {
+        udp->source = htons(src_port);
+        udp->dest = htons(dst_port);
+        udp->len = htons(udp_len); // udp header + payload length
+        udp->check = 0;
+
+        if (payload && payload_len > 0)
+            std::memcpy(data, payload, payload_len);
+    }
+
+    // 4. Pseudo header 기반 UDP checksum 계산
+    PseudoHeader pseudo_header = create_udp_pseudo_header(src_ip, dst_ip, udp_len);
+    char pseudo_buffer[1500]; // MTU 이내 고속 연산용 임시 stack buffer
+    size_t pseudo_len = sizeof(PseudoHeader) + udp_len;
+
+    std::memcpy(pseudo_buffer, &pseudo_header, sizeof(PseudoHeader));
+    std::memcpy(pseudo_buffer + sizeof(PseudoHeader), udp, udp_len); // header + payload 일괄 복사
+
+    uint16_t checksum = calculate_checksum(reinterpret_cast<uint16_t *>(pseudo_buffer), static_cast<int>(pseudo_len));
+
+    // RFC 768 예외 규칙 적용
+    udp->check = (checksum == 0) ? 0xFFFF : checksum;
 }
