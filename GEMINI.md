@@ -179,6 +179,34 @@ Ochlos/
   * **Half-Open 세션 타임아웃 & 가비지 컬렉션(GC)**: SYN만 도착하고 ACK가 없는 미완료 세션은 3~5초 이내에 강제 회수하는 타이머 도입.
   * **최대 용량 제한(Capacity Cap)**: 세션 테이블 상한선 설정 및 LRU 기반 퇴출 정책 수립.
 
+### [SCENARIO-04] L4 Raw UDP Flooding & L3/L4 Boundary Protocol Routing Behavior 실증
+- **공격 목표 (Attack Objective)**: 타깃 L3/L4 라우터의 비인가 프로토콜 처리 거동 분석 및 I/O 버퍼 고갈 (DoS)
+- **OSI 계층 (Target Layer)**: Layer 4 (Transport Layer - UDP)
+- **공격 메커니즘 (Mechanics)**:
+  * L3 IPv4(20B) + UDP Header(8B) + 더미 페이로드("OCHLOS_UDP_BENCHMARK_DATA", 25B) = 53바이트 원시 패킷 패킹 (`IP_HDRINCL`, `IPPROTO_UDP`).
+  * 출발지 IP 위조(`10.0.0.99`) 및 출발지 포트 순환(`10000 ~ 64999`)을 적용하여 RFC 768 Pseudo Header 기반 UDP 체크섬 계산 및 주입.
+  * 웹 전용 포트(`screening-router:8080`)로 비인가 비연결형 UDP 패킷 대량 방출.
+- **실행 도구 (Tool)**: [DoS/raw_udp_flooding.cpp](DoS/raw_udp_flooding.cpp) (C++20 Raw Socket / `IP_HDRINCL`)
+- **실행 명령어 (On-demand Runner)**:
+  ```bash
+  docker compose run --rm ochlos cpprun DoS/raw_udp_flooding.cpp [패킷수]
+  ```
+- **테스트베드 실측 결과 (Empirical Results)**:
+  * **공격 도구 성능 최적화**: 초당 약 45,000 ~ 85,000 PPS의 최대 라인 레이트 버스트 송출 역량 확보.
+  * **규모별 실측 데이터**:
+    * **10개 (기능/정렬 검증)**: 10/10 송출 (1.22 ms) → ScreeningRouter 10건 수신 (`Proto: 17, Size: 53 bytes`), 패킷 정렬 및 체크섬 정상 확인.
+    * **1,000개 폭격 (22.00 ms, 45,454 PPS)**: 889개 수신 (유실률 11.10%).
+    * **10,000개 폭격 (158.58 ms, 63,059 PPS)**: 4,942개 수신 (유실률 50.58%).
+    * **100,000개 폭격 (1,173.55 ms, 85,211 PPS)**: 34,941개 수신 (유실률 65.06%).
+  * **취약점 및 방어선 거동 규명**:
+    * **I/O 병목 DoS 재현**: ICMP 폭격과 동일하게 단일 스레드 `std::cout` 콘솔 I/O 지연으로 인해 커널 소켓 수신 버퍼(`SO_RCVBUF`) 포화 및 최대 65% 패킷 유실 발생.
+    * **무차별 L3 DNAT/SNAT 및 DMZ 주입**: 라우터가 프로토콜 필터링 없이 UDP 패킷을 DNAT/SNAT하여 DMZ(`ReverseProxy`)로 전달하나, ReverseProxy는 TCP 소켓만 청취하므로 비인가 트래픽이 DMZ 대역폭을 불필요하게 소모함.
+    * **세션 테이블 안전성**: `session_table` 등록 조건이 `ip_header->protocol == IPPROTO_TCP`로 한정되어 있어 UDP 폭격 시에는 라우터 메모리 누수나 세션 테이블 팽창이 발생하지 않음 (메모리 2.66 MiB 안정 유지).
+  * **호스트 안전성 검증**: 10만 개 폭격 시 호스트 OS 영향 0, 컨테이너 격리 상태 안정 유지.
+- **블루팀(Bartimaeus) 방어 권고사항 (Blue Team Feedback)**:
+  * **L3/L4 Stateless Default-Deny 구현**: 웹 서비스에 불필요한 UDP(17) 및 비인가 ICMP(1) 프로토콜 패킷을 라우터 진입 즉시 Drop 처리하여 DMZ 유입 차단.
+  * **비동기/샘플링 로깅 도입**: 대량 트래픽 인입 시 I/O 병목으로 인한 정상 패킷 Drop 방지.
+
 ---
 
 ## 📌 7. Ochlos 인프라 및 공격 도구 개선 TODO (Backlog)
@@ -191,9 +219,9 @@ Ochlos/
     - **On-demand 실행**: `docker compose run --rm ochlos ...`으로 필요할 때만 컨테이너를 띄워 컴파일 & 타격 후 자동 소멸(`--rm`).
   - **기대 효과**: Linux 커널의 `CAP_NET_RAW` 권한을 활용해 순수 TCP SYN Flooding(Half-Open, 비정상 패킷 주입) 등 고도화된 DoS 공격을 제약 없이 실증 가능.
 
-- [ ] **L4 UDP Flooding 공격 도구 구현 및 3대 기초 Flooding 완성 (Attack-UDP)**
+- [x] **L4 UDP Flooding 공격 도구 구현 및 3대 기초 Flooding 완성 (Attack-UDP)**
   - **배경 및 목적**: L3 ICMP Flooding(제어용), L4 TCP SYN Flooding(연결형)에 이어 L4 비연결형 프로토콜인 UDP Flooding 도구를 확보하여 네트워크 3대 기초 DoS 공격 라인업(TCP, ICMP, UDP)을 완전체로 구축.
   - **기술 구현 로드맵**:
     - `include/ochlos_net.hpp`에 RFC 768 표준 8바이트 `UDPHeader` 구조체 및 `craft_udp_packet()` 패킷 패킹 유틸리티 추가.
-    - `DoS/udp_flooding.cpp` 작성: 수제 Raw Socket 기반 비연결형 패킷 생성, 무작위 목적지/출발지 포트 변조, 동적 패킷 수 CLI 인자 지원, 고정밀 `steady_clock` 벤치마크 루프 적용.
-    - 블루팀 스크리닝 라우터(웹 전용 HTTP 8080) 대상 UDP 무차별 패킷 주입 및 비인가 프로토콜 처리 거동(무차별 포워딩 vs Port Unreachable 유발 여부) 실측.
+    - `DoS/raw_udp_flooding.cpp` 작성: 수제 Raw Socket 기반 비연결형 패킷 생성, 무작위 목적지/출발지 포트 변조, 동적 패킷 수 CLI 인자 지원, 고정밀 `steady_clock` 벤치마크 루프 적용.
+    - 블루팀 스크리닝 라우터(웹 전용 HTTP 8080) 대상 UDP 무차별 패킷 주입 및 비인가 프로토콜 처리 거동(무차별 포워딩 vs Port Unreachable 유발 여부) 실측 완료 (SCENARIO-04).
