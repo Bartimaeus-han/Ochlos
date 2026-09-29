@@ -79,7 +79,9 @@ int main(int argc, char *argv[]) {
 
     // 4. src ip & sendto() 대상 주소 구조체(sockaddr_in) 설정
     uint32_t src_ip = 0;
-    inet_pton(AF_INET, "100.0.0.99", &src_ip);
+    // RFC 5737 TEST-NET-2 (198.51.100.0/24): 문서/테스트 전용 예약 대역으로,
+    // 실존 호스트로 라우팅되지 않으므로 스푸핑 응답(backscatter)이 제3자에게 도달할 수 없다.
+    inet_pton(AF_INET, "198.51.100.99", &src_ip);
 
     struct sockaddr_in target_addr;
     memset(&target_addr, 0, sizeof(target_addr));
